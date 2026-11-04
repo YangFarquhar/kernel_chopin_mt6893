@@ -7,4 +7,6 @@ ccflags-y += -I$(src)/../include
 ccflags-y += -I$(src)/../drivers/misc/mediatek/mmdvfs
 ccflags-y += -I$(src)/../drivers/misc/mediatek/mmp
 
-ccflags-y += -fno-pic -fno-PIE
+# Linux 4.14 arm64 module loader does not support GOT relocations.
+# Disable compiler features that can introduce GOT references.
+CFLAGS_chopin144_experimental.o += -fno-pic -fno-pie -fno-stack-protector
