@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - chopin144-dev-v0.3
+      - codex/chopin135-experimental
     paths:
       - "chopin144_lkm/**"
       - ".github/workflows/chopin144-v0.3.yml"
@@ -59,10 +60,11 @@ jobs:
         env:
           ARCH: arm64
           CROSS_COMPILE: aarch64-linux-gnu-
+          CROSS_COMPILE_ARM32: arm-linux-gnueabihf-
           LOCALVERSION: -gfc959c14c332
         run: |
           set -euxo pipefail
-          make O=out ARCH=arm64 CROSS_COMPILE="$CROSS_COMPILE" \
+          make O=out ARCH=arm64 CROSS_COMPILE="$CROSS_COMPILE" CROSS_COMPILE_ARM32="$CROSS_COMPILE_ARM32" \
             CC=clang-12 LD=ld.lld-12 AR=llvm-ar-12 NM=llvm-nm-12 \
             OBJCOPY=llvm-objcopy-12 OBJDUMP=llvm-objdump-12 STRIP=llvm-strip-12 \
             HOSTCC=clang-12 HOSTCXX=clang++-12 LOCALVERSION="$LOCALVERSION" \
