@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
- * Chopin144 Experimental LKM V0.3
+ * Chopin135 Experimental LKM V0.3
  * Target: MT6893 / K10A 42-02-0B DSC VDO
  *
  * Adds a seventh DRM mode and wraps the K10A MTK panel extension callbacks.
- * 144Hz profile (HFP 72, VFP 30, PLL 570, data_rate 1140, DCS selector 0x1F)
+ * 135Hz profile (HFP 72, VFP 192, PLL 570, data_rate 1140, DCS selector 0x1F)
  * is experimental and carried forward from the project's V0.2 candidate.
  */
 #include <linux/module.h>
@@ -22,16 +22,16 @@
 
 #include "../drivers/gpu/drm/mediatek/mi_disp/mi_dsi_panel.h"
 
-#define MOD_NAME             "chopin144_experimental"
+#define MOD_NAME             "chopin135_experimental"
 #define TARGET_COMPAT        "k10a_42_02_0b_dsc_vdo,lcm"
 #define TARGET_MODE_INDEX    6
-#define MODE_144_FPS         144
-#define MODE_144_HFP         72
-#define MODE_144_VFP         30
-#define MODE_144_PLL         570
-#define MODE_144_DATA_RATE   1140
-#define MODE_144_CLOCK       412776
-#define MODE_144_SELECTOR    0x1F
+#define MODE_135_FPS         135
+#define MODE_135_HFP         72
+#define MODE_135_VFP         192
+#define MODE_135_PLL         570
+#define MODE_135_DATA_RATE   1140
+#define MODE_135_CLOCK       412565
+#define MODE_135_SELECTOR    0x1F
 
 /*
  * Keep a non-empty __versions section for the 4.14 loader's MODVERSIONS
@@ -40,7 +40,7 @@
  * warns and continues; an absent section is rejected when force-load is off.
  */
 #ifdef CONFIG_MODVERSIONS
-static const struct modversion_info chopin144_empty_versions[]
+static const struct modversion_info chopin135_empty_versions[]
 	__used __section("__versions") = {
 	{ .crc = 0, .name = "" },
 };
@@ -62,7 +62,7 @@ typedef ssize_t (*dcs_write_buffer_fn)(struct mipi_dsi_device *dsi,
 				       const void *data, size_t len);
 typedef struct mtk_panel_ext *(*find_panel_ext_fn)(struct drm_panel *panel);
 
-static DEFINE_MUTEX(chopin144_lock);
+static DEFINE_MUTEX(chopin135_lock);
 static struct delayed_work probe_work;
 static struct mtk_dsi *target_dsi;
 static struct mtk_panel_ext *target_ext;
@@ -71,8 +71,8 @@ static struct mtk_panel_funcs hooked_funcs;
 static struct mtk_ddp_comp_funcs hooked_comp_funcs;
 static const struct mtk_ddp_comp_funcs *original_comp_funcs;
 static ddp_io_cmd_fn original_io_cmd;
-static struct mtk_panel_params params_144hz;
-static struct drm_display_mode *mode_144hz;
+static struct mtk_panel_params params_135hz;
+static struct drm_display_mode *mode_135hz;
 static bool installed;
 static unsigned int probe_attempts;
 
@@ -84,17 +84,17 @@ static mode_probed_add_fn mode_probed_add;
 static mode_destroy_fn mode_destroy;
 static dcs_write_buffer_fn dcs_write_buffer;
 
-static const struct drm_display_mode mode_144_template = {
-	.clock = MODE_144_CLOCK,
+static const struct drm_display_mode mode_135_template = {
+	.clock = MODE_135_CLOCK,
 	.hdisplay = 1080,
-	.hsync_start = 1080 + MODE_144_HFP,
-	.hsync_end = 1080 + MODE_144_HFP + 10,
-	.htotal = 1080 + MODE_144_HFP + 10 + 8,
+	.hsync_start = 1080 + MODE_135_HFP,
+	.hsync_end = 1080 + MODE_135_HFP + 10,
+	.htotal = 1080 + MODE_135_HFP + 10 + 8,
 	.vdisplay = 2400,
-	.vsync_start = 2400 + MODE_144_VFP,
-	.vsync_end = 2400 + MODE_144_VFP + 2,
-	.vtotal = 2400 + MODE_144_VFP + 2 + 18,
-	.vrefresh = MODE_144_FPS,
+	.vsync_start = 2400 + MODE_135_VFP,
+	.vsync_end = 2400 + MODE_135_VFP + 2,
+	.vtotal = 2400 + MODE_135_VFP + 2 + 18,
+	.vrefresh = MODE_135_FPS,
 	.flags = DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC,
 };
 
@@ -188,7 +188,7 @@ static void refresh_crtc_mode_cache(struct mtk_dsi *dsi)
 	}
 }
 
-static int add_144hz_mode(struct mtk_dsi *dsi)
+static int add_135hz_mode(struct mtk_dsi *dsi)
 {
 	struct drm_display_mode *mode;
 	struct drm_display_mode *iter;
@@ -200,14 +200,14 @@ static int add_144hz_mode(struct mtk_dsi *dsi)
 
 	mutex_lock(&dsi->conn.dev->mode_config.mutex);
 	list_for_each_entry(iter, &dsi->conn.modes, head) {
-		if (iter->vrefresh == MODE_144_FPS) {
-			mode_144hz = iter;
+		if (iter->vrefresh == MODE_135_FPS) {
+			mode_135hz = iter;
 			mutex_unlock(&dsi->conn.dev->mode_config.mutex);
 			return 0;
 		}
 	}
 
-	mode = mode_duplicate(dsi->panel->drm, &mode_144_template);
+	mode = mode_duplicate(dsi->panel->drm, &mode_135_template);
 	if (!mode) {
 		mutex_unlock(&dsi->conn.dev->mode_config.mutex);
 		return -ENOMEM;
@@ -215,7 +215,7 @@ static int add_144hz_mode(struct mtk_dsi *dsi)
 	mode_set_name(mode);
 	mode->type = DRM_MODE_TYPE_DRIVER;
 	mode_probed_add(dsi->panel->connector, mode);
-	mode_144hz = mode;
+	mode_135hz = mode;
 	mutex_unlock(&dsi->conn.dev->mode_config.mutex);
 
 	refresh_crtc_mode_cache(dsi);
@@ -225,12 +225,12 @@ static int add_144hz_mode(struct mtk_dsi *dsi)
 	return 0;
 }
 
-static int switch_panel_dcs_to_144(struct drm_panel *panel)
+static int switch_panel_dcs_to_135(struct drm_panel *panel)
 {
 	struct mipi_dsi_device *dsi;
 	static const u8 page[] = { 0xFF, 0x25 };
 	static const u8 unlock[] = { 0xFB, 0x01 };
-	static const u8 selector[] = { 0x18, MODE_144_SELECTOR };
+	static const u8 selector[] = { 0x18, MODE_135_SELECTOR };
 	ssize_t ret;
 
 	if (!panel || !panel->dev || !dcs_write_buffer)
@@ -247,7 +247,7 @@ static int switch_panel_dcs_to_144(struct drm_panel *panel)
 	return ret < 0 ? (int)ret : 0;
 }
 
-static int chopin144_ext_param_set(struct drm_panel *panel,
+static int chopin135_ext_param_set(struct drm_panel *panel,
 				   unsigned int mode)
 {
 	struct mtk_dsi *dsi = target_dsi;
@@ -259,13 +259,13 @@ static int chopin144_ext_param_set(struct drm_panel *panel,
 		return -ENODEV;
 
 	if (mode == TARGET_MODE_INDEX) {
-		target_ext->params = &params_144hz;
-		dsi->vm.hfront_porch = MODE_144_HFP;
-		dsi->vm.vfront_porch = MODE_144_VFP;
+		target_ext->params = &params_135hz;
+		dsi->vm.hfront_porch = MODE_135_HFP;
+		dsi->vm.vfront_porch = MODE_135_VFP;
 
-		pr_info(MOD_NAME ": selected 144Hz profile, pll=%u data_rate=%u HFP=%u VFP=%u selector=0x%02X\n",
-			params_144hz.pll_clk, params_144hz.data_rate,
-			MODE_144_HFP, MODE_144_VFP, MODE_144_SELECTOR);
+		pr_info(MOD_NAME ": selected 135Hz profile, pll=%u data_rate=%u HFP=%u VFP=%u selector=0x%02X\n",
+			params_135hz.pll_clk, params_135hz.data_rate,
+			MODE_135_HFP, MODE_135_VFP, MODE_135_SELECTOR);
 		return 0;
 	}
 
@@ -274,7 +274,7 @@ static int chopin144_ext_param_set(struct drm_panel *panel,
 	 * performs the matching PLL/porch transition after DYN_FPS_INDEX has
 	 * calculated the target mode.
 	 */
-	if (target_ext->params == &params_144hz && dsi->mipi_hopping_sta) {
+	if (target_ext->params == &params_135hz && dsi->mipi_hopping_sta) {
 		target_mode = mode_at_index(dsi, mode);
 		if (target_mode) {
 			dsi->vm.hfront_porch =
@@ -288,7 +288,7 @@ static int chopin144_ext_param_set(struct drm_panel *panel,
 	return ret;
 }
 
-static int chopin144_mode_switch(struct drm_panel *panel,
+static int chopin135_mode_switch(struct drm_panel *panel,
 				 unsigned int cur_mode,
 				 unsigned int dst_mode,
 				 enum MTK_PANEL_MODE_SWITCH_STAGE stage)
@@ -296,7 +296,7 @@ static int chopin144_mode_switch(struct drm_panel *panel,
 	if (dst_mode == TARGET_MODE_INDEX) {
 		/* Match the panel driver's AFTER_DSI_POWERON recovery stage. */
 		if (stage == AFTER_DSI_POWERON)
-			return switch_panel_dcs_to_144(panel);
+			return switch_panel_dcs_to_135(panel);
 		return 0;
 	}
 
@@ -313,7 +313,7 @@ static int chopin144_mode_switch(struct drm_panel *panel,
  * that is too early in the atomic commit. Intercept the DSI_TIMING_CHANGE
  * command instead, after the CRTC has selected the target mode and profile.
  */
-static int chopin144_io_cmd(struct mtk_ddp_comp *comp,
+static int chopin135_io_cmd(struct mtk_ddp_comp *comp,
 			    struct cmdq_pkt *handle,
 			    enum mtk_ddp_io_cmd cmd, void *params)
 {
@@ -413,32 +413,32 @@ static int install_hooks(struct mtk_dsi *dsi)
 		return ret ? ret : -EINVAL;
 	}
 
-	memcpy(&params_144hz, target_ext->params, sizeof(params_144hz));
-	params_144hz.pll_clk = MODE_144_PLL;
-	params_144hz.data_rate = MODE_144_DATA_RATE;
-	params_144hz.dyn.switch_en = 1;
-	params_144hz.dyn.pll_clk = MODE_144_PLL;
-	params_144hz.dyn.data_rate = MODE_144_DATA_RATE;
-	params_144hz.dyn.hfp = MODE_144_HFP;
-	params_144hz.dyn.vfp = MODE_144_VFP;
-	params_144hz.dyn_fps.switch_en = 1;
-	params_144hz.dyn_fps.vact_timing_fps = MODE_144_FPS;
-	params_144hz.dyn_fps.data_rate = MODE_144_DATA_RATE;
+	memcpy(&params_135hz, target_ext->params, sizeof(params_135hz));
+	params_135hz.pll_clk = MODE_135_PLL;
+	params_135hz.data_rate = MODE_135_DATA_RATE;
+	params_135hz.dyn.switch_en = 1;
+	params_135hz.dyn.pll_clk = MODE_135_PLL;
+	params_135hz.dyn.data_rate = MODE_135_DATA_RATE;
+	params_135hz.dyn.hfp = MODE_135_HFP;
+	params_135hz.dyn.vfp = MODE_135_VFP;
+	params_135hz.dyn_fps.switch_en = 1;
+	params_135hz.dyn_fps.vact_timing_fps = MODE_135_FPS;
+	params_135hz.dyn_fps.data_rate = MODE_135_DATA_RATE;
 	/* Stock table has FF 25 / FB 01 / 18 20 in entries 0..2. */
-	params_144hz.dyn_fps.dfps_cmd_table[2].para_list[1] =
-		MODE_144_SELECTOR;
+	params_135hz.dyn_fps.dfps_cmd_table[2].para_list[1] =
+		MODE_135_SELECTOR;
 
 	/* Restore the currently selected stock profile and current_fps. */
 	original_funcs->ext_param_set(panel, restore_index);
 	target_ext->params = saved_params;
 
-	ret = add_144hz_mode(dsi);
+	ret = add_135hz_mode(dsi);
 	if (ret)
 		return ret;
 
 	memcpy(&hooked_funcs, original_funcs, sizeof(hooked_funcs));
-	hooked_funcs.ext_param_set = chopin144_ext_param_set;
-	hooked_funcs.mode_switch = chopin144_mode_switch;
+	hooked_funcs.ext_param_set = chopin135_ext_param_set;
+	hooked_funcs.mode_switch = chopin135_mode_switch;
 	target_ext->funcs = &hooked_funcs;
 
 	original_comp_funcs = dsi->ddp_comp.funcs;
@@ -447,14 +447,14 @@ static int install_hooks(struct mtk_dsi *dsi)
 	memcpy(&hooked_comp_funcs, original_comp_funcs,
 	       sizeof(hooked_comp_funcs));
 	original_io_cmd = original_comp_funcs->io_cmd;
-	hooked_comp_funcs.io_cmd = chopin144_io_cmd;
+	hooked_comp_funcs.io_cmd = chopin135_io_cmd;
 	dsi->ddp_comp.funcs = &hooked_comp_funcs;
 
 	target_dsi = dsi;
 	dsi->ext = target_ext;
 	installed = true;
 
-	pr_info(MOD_NAME ": hooks installed on %s; 144Hz mode is available\n",
+	pr_info(MOD_NAME ": hooks installed on %s; 135Hz mode is available\n",
 		TARGET_COMPAT);
 	return 0;
 }
@@ -464,16 +464,16 @@ static void probe_work_fn(struct work_struct *work)
 	struct mtk_dsi *dsi;
 	int ret;
 
-	mutex_lock(&chopin144_lock);
+	mutex_lock(&chopin135_lock);
 	if (installed) {
-		mutex_unlock(&chopin144_lock);
+		mutex_unlock(&chopin135_lock);
 		return;
 	}
 
 	dsi = get_target_dsi();
 	if (!dsi || !dsi->panel || !dsi->conn.dev) {
 		probe_attempts++;
-		mutex_unlock(&chopin144_lock);
+		mutex_unlock(&chopin135_lock);
 		if (probe_attempts < 60)
 			schedule_delayed_work(&probe_work, HZ);
 		else
@@ -485,7 +485,7 @@ static void probe_work_fn(struct work_struct *work)
 	ret = install_hooks(dsi);
 	if (ret) {
 		probe_attempts++;
-		mutex_unlock(&chopin144_lock);
+		mutex_unlock(&chopin135_lock);
 		pr_err(MOD_NAME ": install attempt %u failed: %d\n",
 			probe_attempts, ret);
 		if (probe_attempts < 60)
@@ -493,10 +493,10 @@ static void probe_work_fn(struct work_struct *work)
 		return;
 	}
 
-	mutex_unlock(&chopin144_lock);
+	mutex_unlock(&chopin135_lock);
 }
 
-static int __init chopin144_init(void)
+static int __init chopin135_init(void)
 {
 	of_compatible = (of_compatible_fn)
 		resolve_symbol("of_device_is_compatible");
@@ -526,15 +526,15 @@ static int __init chopin144_init(void)
 	return 0;
 }
 
-static void __exit chopin144_exit(void)
+static void __exit chopin135_exit(void)
 {
 	struct drm_device *drm = NULL;
 
 	cancel_delayed_work_sync(&probe_work);
-	mutex_lock(&chopin144_lock);
+	mutex_lock(&chopin135_lock);
 
 	if (installed && target_dsi && target_ext) {
-		if (target_ext->params == &params_144hz &&
+		if (target_ext->params == &params_135hz &&
 		    target_dsi->mipi_hopping_sta && dsi_clk_change) {
 			struct mtk_panel_params restore_params;
 			struct mtk_panel_params *stock_params;
@@ -566,14 +566,14 @@ static void __exit chopin144_exit(void)
 			target_dsi->ddp_comp.funcs = original_comp_funcs;
 		drm = target_dsi->conn.dev;
 
-		if (mode_144hz && target_dsi->panel &&
+		if (mode_135hz && target_dsi->panel &&
 		    target_dsi->panel->connector && drm) {
 			mutex_lock(&drm->mode_config.mutex);
-			list_del_init(&mode_144hz->head);
+			list_del_init(&mode_135hz->head);
 			mutex_unlock(&drm->mode_config.mutex);
 			if (mode_destroy)
-				mode_destroy(drm, mode_144hz);
-			mode_144hz = NULL;
+				mode_destroy(drm, mode_135hz);
+			mode_135hz = NULL;
 			refresh_crtc_mode_cache(target_dsi);
 		}
 	}
@@ -583,14 +583,14 @@ static void __exit chopin144_exit(void)
 	original_funcs = NULL;
 	original_comp_funcs = NULL;
 	original_io_cmd = NULL;
-	mutex_unlock(&chopin144_lock);
+	mutex_unlock(&chopin135_lock);
 	pr_info(MOD_NAME ": unloaded\n");
 }
 
-module_init(chopin144_init);
-module_exit(chopin144_exit);
+module_init(chopin135_init);
+module_exit(chopin135_exit);
 
 MODULE_LICENSE("GPL");
-MODULE_AUTHOR("Chopin144 experimental project");
-MODULE_DESCRIPTION("Experimental 144Hz DRM/MTK DSI mode for POCO X3 GT K10A panel");
+MODULE_AUTHOR("Chopin135 experimental project");
+MODULE_DESCRIPTION("Experimental 135Hz DRM/MTK DSI mode for POCO X3 GT K10A panel");
 MODULE_VERSION("0.3");
