@@ -49,6 +49,8 @@ static const struct modversion_info chopin135_empty_versions[]
 
 typedef int (*ddp_io_cmd_fn)(struct mtk_ddp_comp *comp, struct cmdq_pkt *handle,
 			     enum mtk_ddp_io_cmd cmd, void *params);
+typedef int (*panel_get_modes_fn)(struct drm_panel *panel,
+				  struct drm_connector *connector);
 typedef int (*of_compatible_fn)(const struct device_node *node,
 				const char *compatible);
 typedef struct drm_display_mode *(*mode_duplicate_fn)(
@@ -70,11 +72,15 @@ static struct mtk_dsi *target_dsi;
 static struct mtk_panel_ext *target_ext;
 static struct mtk_panel_funcs *original_funcs;
 static struct mtk_panel_funcs hooked_funcs;
+static const struct drm_panel_funcs *original_panel_funcs;
+static struct drm_panel_funcs hooked_panel_funcs;
 static struct mtk_ddp_comp_funcs hooked_comp_funcs;
 static const struct mtk_ddp_comp_funcs *original_comp_funcs;
 static ddp_io_cmd_fn original_io_cmd;
 static struct mtk_panel_params params_135hz;
 static struct drm_display_mode *mode_135hz;
+static int target_mode_index = -1;
+static bool mode_probe_logged;
 static bool installed;
 static unsigned int probe_attempts;
 
@@ -190,42 +196,69 @@ static void refresh_crtc_mode_cache(struct mtk_dsi *dsi)
 	}
 }
 
-static int add_135hz_mode(struct mtk_dsi *dsi)
+static bool is_135_profile(const struct drm_display_mode *mode)
+{
+	return mode && mode->hdisplay == 1080 && mode->vdisplay == 2400 &&
+		mode->htotal == (1080 + MODE_135_HFP + 10 + 8) &&
+		mode->vtotal == (2400 + MODE_135_VFP + 2 + 18);
+}
+
+static int chopin135_panel_get_modes(struct drm_panel *panel,
+				     struct drm_connector *connector)
 {
 	struct drm_display_mode *mode;
-	struct drm_display_mode *iter;
+	int ret;
 
-	if (!dsi || !dsi->panel || !dsi->panel->connector ||
-	    !dsi->panel->drm || !mode_duplicate || !mode_probed_add ||
-	    !mode_set_name)
-		return -EINVAL;
+	if (!original_panel_funcs || !original_panel_funcs->get_modes)
+		return -ENOSYS;
 
-	mutex_lock(&dsi->conn.dev->mode_config.mutex);
-	list_for_each_entry(iter, &dsi->conn.modes, head) {
-		if (iter->vrefresh == MODE_135_FPS) {
-			mode_135hz = iter;
-			mutex_unlock(&dsi->conn.dev->mode_config.mutex);
-			return 0;
+	ret = original_panel_funcs->get_modes(panel, connector);
+	if (ret < 0)
+		return ret;
+
+	list_for_each_entry(mode, &connector->modes, head) {
+		if (is_135_profile(mode)) {
+			mode->status = MODE_OK;
+			return ret + 1;
 		}
 	}
-
-	mode = mode_duplicate(dsi->panel->drm, &mode_135_template);
-	if (!mode) {
-		mutex_unlock(&dsi->conn.dev->mode_config.mutex);
-		return -ENOMEM;
+	list_for_each_entry(mode, &connector->probed_modes, head) {
+		if (is_135_profile(mode))
+			return ret + 1;
 	}
+
+	mode = mode_duplicate(panel->drm, &mode_135_template);
+	if (!mode)
+		return ret;
 	mode_set_name(mode);
 	mode->type = DRM_MODE_TYPE_DRIVER;
-	mode_probed_add(dsi->panel->connector, mode);
-	mode_135hz = mode;
-	mutex_unlock(&dsi->conn.dev->mode_config.mutex);
+	mode_probed_add(connector, mode);
+	if (!mode_probe_logged) {
+		pr_info(MOD_NAME ": added 135Hz candidate to DRM connector probe\n");
+		mode_probe_logged = true;
+	}
+	return ret + 1;
+}
 
-	refresh_crtc_mode_cache(dsi);
-	if (hotplug_event)
-		hotplug_event(dsi->conn.dev);
-	pr_info(MOD_NAME ": appended DRM mode %s @%u, clock=%u kHz, totals=%ux%u\n",
-		mode->name, mode->vrefresh, mode->clock,
-		mode->htotal, mode->vtotal);
+static int add_135hz_mode(struct mtk_dsi *dsi)
+{
+	if (!dsi || !dsi->panel || !dsi->panel->connector ||
+	    !dsi->panel->drm || !dsi->panel->funcs ||
+	    !dsi->panel->funcs->get_modes || !mode_duplicate ||
+	    !mode_probed_add || !mode_set_name)
+		return -EINVAL;
+
+	original_panel_funcs = dsi->panel->funcs;
+	mode_135hz = mode_duplicate(dsi->panel->drm, &mode_135_template);
+	if (!mode_135hz)
+		return -ENOMEM;
+	mode_set_name(mode_135hz);
+	mode_135hz->type = DRM_MODE_TYPE_DRIVER;
+
+	memcpy(&hooked_panel_funcs, original_panel_funcs,
+	       sizeof(hooked_panel_funcs));
+	hooked_panel_funcs.get_modes = chopin135_panel_get_modes;
+	dsi->panel->funcs = &hooked_panel_funcs;
 	return 0;
 }
 
@@ -262,7 +295,7 @@ static int chopin135_ext_param_set(struct drm_panel *panel,
 	    !original_funcs->ext_param_set)
 		return -ENODEV;
 
-	if (mode == TARGET_MODE_INDEX) {
+	if (target_mode_index >= 0 && mode == target_mode_index) {
 		target_ext->params = &params_135hz;
 		dsi->vm.hfront_porch = MODE_135_HFP;
 		dsi->vm.vfront_porch = MODE_135_VFP;
@@ -297,7 +330,7 @@ static int chopin135_mode_switch(struct drm_panel *panel,
 				 unsigned int dst_mode,
 				 enum MTK_PANEL_MODE_SWITCH_STAGE stage)
 {
-	if (dst_mode == TARGET_MODE_INDEX) {
+	if (target_mode_index >= 0 && dst_mode == target_mode_index) {
 		/* Match the panel driver's AFTER_DSI_POWERON recovery stage. */
 		if (stage == AFTER_DSI_POWERON)
 			return switch_panel_dcs_to_135(panel);
@@ -328,6 +361,47 @@ static int chopin135_io_cmd(struct mtk_ddp_comp *comp,
 	struct drm_crtc_state *current_state;
 	int hopping;
 	bool use_dynamic;
+
+	if (!original_io_cmd)
+		return -ENOSYS;
+
+	if (cmd == DSI_SET_CRTC_AVAIL_MODES && params) {
+		struct mtk_drm_crtc *crtc = params;
+		struct drm_display_mode *new_modes;
+		unsigned int i, count;
+		int ret;
+
+		if (crtc->avail_modes) {
+			vfree(crtc->avail_modes);
+			crtc->avail_modes = NULL;
+		}
+		ret = original_io_cmd(comp, handle, cmd, params);
+		if (ret || !installed || !mode_135hz || !crtc->avail_modes)
+			return ret;
+
+		for (i = 0; i < crtc->avail_modes_num; i++) {
+			if (is_135_profile(&crtc->avail_modes[i])) {
+				target_mode_index = i;
+				return ret;
+			}
+		}
+
+		count = crtc->avail_modes_num;
+		new_modes = vzalloc(sizeof(*new_modes) * (count + 1));
+		if (!new_modes)
+			return ret;
+		for (i = 0; i < count; i++)
+			drm_mode_copy(&new_modes[i], &crtc->avail_modes[i]);
+		drm_mode_copy(&new_modes[count], mode_135hz);
+		vfree(crtc->avail_modes);
+		crtc->avail_modes = new_modes;
+		crtc->avail_modes_num = count + 1;
+		crtc->max_fps = max(crtc->max_fps, MODE_135_FPS);
+		target_mode_index = count;
+		pr_info(MOD_NAME ": exposed 135Hz as CRTC mode index %d\\n",
+			target_mode_index);
+		return ret;
+	}
 
 	if (cmd == DSI_TIMING_CHANGE && comp) {
 		dsi = container_of(comp, struct mtk_dsi, ddp_comp);
@@ -379,8 +453,6 @@ static int chopin135_io_cmd(struct mtk_ddp_comp *comp,
 		}
 	}
 
-	if (!original_io_cmd)
-		return -ENOSYS;
 	return original_io_cmd(comp, handle, cmd, params);
 }
 
@@ -460,8 +532,11 @@ static int install_hooks(struct mtk_dsi *dsi)
 	target_dsi = dsi;
 	dsi->ext = target_ext;
 	installed = true;
+	refresh_crtc_mode_cache(dsi);
+	if (hotplug_event)
+		hotplug_event(dsi->conn.dev);
 
-	pr_info(MOD_NAME ": hooks installed on %s; 135Hz mode is available\n",
+	pr_info(MOD_NAME ": hooks installed on %s; 135Hz probe hook armed\n",
 		TARGET_COMPAT);
 	return 0;
 }
