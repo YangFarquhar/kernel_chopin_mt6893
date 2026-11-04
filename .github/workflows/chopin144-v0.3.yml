@@ -70,6 +70,30 @@ jobs:
             HOSTCC=clang-12 HOSTCXX=clang++-12 LOCALVERSION="$LOCALVERSION" \
             KBUILD_MODPOST_WARN=1 M="$GITHUB_WORKSPACE/chopin144_lkm" modules -j2
           test -s chopin144_lkm/chopin144_experimental.ko
+          python3 - chopin144_lkm/chopin144_experimental.ko <<'PY'
+          import pathlib, struct, sys
+          data = pathlib.Path(sys.argv[1]).read_bytes()
+          assert data[:4] == b"\x7fELF" and data[4] == 2 and data[5] == 1
+          shoff = struct.unpack_from("<Q", data, 40)[0]
+          shentsize, shnum = struct.unpack_from("<HH", data, 58)
+          bad = {}
+          for i in range(shnum):
+              off = shoff + i * shentsize
+              sh_type = struct.unpack_from("<I", data, off + 4)[0]
+              if sh_type != 4:
+                  continue
+              reloc_off = struct.unpack_from("<Q", data, off + 24)[0]
+              reloc_size = struct.unpack_from("<Q", data, off + 32)[0]
+              entsize = struct.unpack_from("<Q", data, off + 56)[0]
+              for pos in range(reloc_off, reloc_off + reloc_size, entsize):
+                  info = struct.unpack_from("<Q", data, pos + 8)[0]
+                  typ = info & 0xffffffff
+                  if typ in (311, 312):
+                      bad[typ] = bad.get(typ, 0) + 1
+          if bad:
+              raise SystemExit(f"unsupported arm64 GOT relocations remain: {bad}")
+          print("ELF relocation check passed: no AArch64 relocation types 311/312")
+          PY
 
       - name: Normalize MODVERSIONS section for experimental ABI probe
         run: |

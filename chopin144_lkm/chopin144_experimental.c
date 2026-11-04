@@ -41,7 +41,7 @@
  */
 #ifdef CONFIG_MODVERSIONS
 static const struct modversion_info chopin135_empty_versions[]
-	__used __section("__versions") = {
+	__used __section(__versions) = {
 	{ .crc = 0, .name = "" },
 };
 #endif
