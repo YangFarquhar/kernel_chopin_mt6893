@@ -47,6 +47,7 @@ static const struct modversion_info chopin144_empty_versions[]
 #endif
 
 typedef void (*dsi_clk_change_fn)(struct mtk_dsi *dsi, int enable);
+typedef int (*ddp_io_cmd_fn)(struct mtk_ddp_comp *comp, struct cmdq_pkt *handle,\n\t\t\t     enum mtk_ddp_io_cmd cmd, void *params);
 typedef int (*of_compatible_fn)(const struct device_node *node,
 				const char *compatible);
 typedef struct drm_display_mode *(*mode_duplicate_fn)(
@@ -66,7 +67,7 @@ static struct delayed_work probe_work;
 static struct mtk_dsi *target_dsi;
 static struct mtk_panel_ext *target_ext;
 static struct mtk_panel_funcs *original_funcs;
-static struct mtk_panel_funcs hooked_funcs;
+static struct mtk_panel_funcs hooked_funcs;\nstatic struct mtk_ddp_comp_funcs hooked_comp_funcs;\nstatic const struct mtk_ddp_comp_funcs *original_comp_funcs;\nstatic ddp_io_cmd_fn original_io_cmd;
 static struct mtk_panel_params params_144hz;
 static struct drm_display_mode *mode_144hz;
 static bool installed;
@@ -269,9 +270,6 @@ static int chopin144_ext_param_set(struct drm_panel *panel,
 		dsi->vm.hfront_porch = MODE_144_HFP;
 		dsi->vm.vfront_porch = MODE_144_VFP;
 
-		if (dsi_clk_change && !dsi->mipi_hopping_sta)
-			dsi_clk_change(dsi, 1);
-
 		update_panel_current_fps(MODE_144_FPS);
 		pr_info(MOD_NAME ": selected 144Hz profile, pll=%u data_rate=%u HFP=%u VFP=%u selector=0x%02X\n",
 			params_144hz.pll_clk, params_144hz.data_rate,
@@ -293,8 +291,6 @@ static int chopin144_ext_param_set(struct drm_panel *panel,
 			dsi->vm.vfront_porch =
 				target_mode->vsync_start - target_mode->vdisplay;
 		}
-		if (dsi_clk_change)
-			dsi_clk_change(dsi, 0);
 	}
 
 	ret = original_funcs->ext_param_set(panel, mode);
@@ -322,6 +318,77 @@ static int chopin144_mode_switch(struct drm_panel *panel,
 		return original_funcs->mode_switch(panel, cur_mode,
 						   dst_mode, stage);
 	return 1;
+}
+
+
+/*
+ * The panel callback is invoked once during DYN_FPS_INDEX calculation and
+ * again from mtk_dsi_timing_change(). Do not change the PLL in ext_param_set:
+ * that is too early in the atomic commit. Intercept the DSI_TIMING_CHANGE
+ * command instead, after the CRTC has selected the target mode and profile.
+ */
+static int chopin144_io_cmd(struct mtk_ddp_comp *comp,
+			    struct cmdq_pkt *handle,
+			    enum mtk_ddp_io_cmd cmd, void *params)
+{
+	struct mtk_dsi *dsi;
+	struct mtk_panel_ext *ext;
+	struct mtk_panel_params restore_params;
+	struct mtk_panel_params *saved_params;
+	struct drm_crtc_state *current_state;
+	bool use_dynamic;
+
+	if (cmd == DSI_TIMING_CHANGE && comp) {
+		dsi = container_of(comp, struct mtk_dsi, ddp_comp);
+		ext = dsi->ext;
+		use_dynamic = ext && ext->params &&
+			ext->params->dyn.switch_en == 1;
+
+		if (ext && ext->params &&
+		    dsi->mipi_hopping_sta != use_dynamic) {
+			if (!use_dynamic) {
+				current_state = comp->mtk_crtc ?
+					comp->mtk_crtc->base.state : NULL;
+				if (current_state) {
+					dsi->vm.hfront_porch =
+						current_state->adjusted_mode.hsync_start -
+						current_state->adjusted_mode.hdisplay;
+					dsi->vm.vfront_porch =
+						current_state->adjusted_mode.vsync_start -
+						current_state->adjusted_mode.vdisplay;
+				}
+
+				/*
+				 * The stock 4.14 mtk_dsi_clk_change() early-returns
+				 * when dyn.switch_en is zero. Present a temporary copy
+				 * with the same stock timing values but switch_en=1 so
+				 * the function executes its normal-rate restore path.
+				 */
+				saved_params = ext->params;
+				memcpy(&restore_params, saved_params,
+				       sizeof(restore_params));
+				restore_params.dyn.switch_en = 1;
+				ext->params = &restore_params;
+				if (dsi_clk_change)
+					dsi_clk_change(dsi, 0);
+				ext->params = saved_params;
+			} else if (dsi_clk_change) {
+				dsi_clk_change(dsi, 1);
+			}
+
+			if (comp->mtk_crtc)
+				comp->mtk_crtc->mipi_hopping_sta = use_dynamic;
+			pr_info(MOD_NAME ": DSI profile transition dynamic=%u rate=%u hopping=%u\n",
+				use_dynamic,
+				use_dynamic ? ext->params->dyn.data_rate :
+				ext->params->data_rate,
+				dsi->mipi_hopping_sta);
+		}
+	}
+
+	if (!original_io_cmd)
+		return -ENOSYS;
+	return original_io_cmd(comp, handle, cmd, params);
 }
 
 static int install_hooks(struct mtk_dsi *dsi)
@@ -387,6 +454,16 @@ static int install_hooks(struct mtk_dsi *dsi)
 	hooked_funcs.ext_param_set = chopin144_ext_param_set;
 	hooked_funcs.mode_switch = chopin144_mode_switch;
 	target_ext->funcs = &hooked_funcs;
+
+	original_comp_funcs = dsi->ddp_comp.funcs;
+	if (!original_comp_funcs || !original_comp_funcs->io_cmd)
+		return -ENODEV;
+	memcpy(&hooked_comp_funcs, original_comp_funcs,
+	       sizeof(hooked_comp_funcs));
+	original_io_cmd = original_comp_funcs->io_cmd;
+	hooked_comp_funcs.io_cmd = chopin144_io_cmd;
+	dsi->ddp_comp.funcs = &hooked_comp_funcs;
+
 	target_dsi = dsi;
 	dsi->ext = target_ext;
 	installed = true;
@@ -487,6 +564,8 @@ static void __exit chopin144_exit(void)
 		}
 
 		target_ext->funcs = original_funcs;
+		if (original_comp_funcs)
+			target_dsi->ddp_comp.funcs = original_comp_funcs;
 		drm = target_dsi->conn.dev;
 
 		if (mode_144hz && target_dsi->panel &&
@@ -504,6 +583,8 @@ static void __exit chopin144_exit(void)
 	target_ext = NULL;
 	target_dsi = NULL;
 	original_funcs = NULL;
+	original_comp_funcs = NULL;
+	original_io_cmd = NULL;
 	mutex_unlock(&chopin144_lock);
 	pr_info(MOD_NAME ": unloaded\n");
 }
