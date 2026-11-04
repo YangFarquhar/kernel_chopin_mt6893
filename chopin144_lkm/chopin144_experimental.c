@@ -48,8 +48,7 @@ static const struct modversion_info chopin135_empty_versions[]
 
 typedef int (*ddp_io_cmd_fn)(struct mtk_ddp_comp *comp, struct cmdq_pkt *handle,
 			     enum mtk_ddp_io_cmd cmd, void *params);
-typedef int (*panel_get_modes_fn)(struct drm_panel *panel,
-				  struct drm_connector *connector);
+typedef int (*panel_get_modes_fn)(struct drm_panel *panel);
 typedef int (*of_compatible_fn)(const struct device_node *node,
 				const char *compatible);
 typedef struct drm_display_mode *(*mode_duplicate_fn)(
@@ -202,16 +201,16 @@ static bool is_135_profile(const struct drm_display_mode *mode)
 		mode->vtotal == (2400 + MODE_135_VFP + 2 + 18);
 }
 
-static int chopin135_panel_get_modes(struct drm_panel *panel,
-				     struct drm_connector *connector)
+static int chopin135_panel_get_modes(struct drm_panel *panel)
 {
+	struct drm_connector *connector = panel->connector;
 	struct drm_display_mode *mode;
 	int ret;
 
 	if (!original_panel_funcs || !original_panel_funcs->get_modes)
 		return -ENOSYS;
 
-	ret = original_panel_funcs->get_modes(panel, connector);
+	ret = original_panel_funcs->get_modes(panel);
 	if (ret < 0)
 		return ret;
 
@@ -395,7 +394,7 @@ static int chopin135_io_cmd(struct mtk_ddp_comp *comp,
 		vfree(crtc->avail_modes);
 		crtc->avail_modes = new_modes;
 		crtc->avail_modes_num = count + 1;
-		crtc->max_fps = max(crtc->max_fps, MODE_135_FPS);
+		crtc->max_fps = max(crtc->max_fps, (unsigned int)MODE_135_FPS);
 		target_mode_index = count;
 		pr_info(MOD_NAME ": exposed 135Hz as CRTC mode index %d\n",
 			target_mode_index);
