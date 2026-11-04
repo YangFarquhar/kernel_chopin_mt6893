@@ -617,6 +617,25 @@ static int __init chopin135_init(void)
 	return 0;
 }
 
+static void remove_135_profile_modes(struct drm_connector *connector,
+				     struct drm_device *drm)
+{
+	struct drm_display_mode *mode, *next;
+
+	list_for_each_entry_safe(mode, next, &connector->modes, head) {
+		if (is_135_profile(mode)) {
+			list_del_init(&mode->head);
+			mode_destroy(drm, mode);
+		}
+	}
+	list_for_each_entry_safe(mode, next, &connector->probed_modes, head) {
+		if (is_135_profile(mode)) {
+			list_del_init(&mode->head);
+			mode_destroy(drm, mode);
+		}
+	}
+}
+
 static void __exit chopin135_exit(void)
 {
 	struct drm_device *drm = NULL;
@@ -658,32 +677,36 @@ static void __exit chopin135_exit(void)
 			}
 		}
 
+		drm = target_dsi->conn.dev;
+		if (target_dsi->panel && original_panel_funcs)
+			target_dsi->panel->funcs = original_panel_funcs;
 		target_ext->funcs = original_funcs;
 		if (original_comp_funcs)
 			target_dsi->ddp_comp.funcs = original_comp_funcs;
-		drm = target_dsi->conn.dev;
+		installed = false;
 
-		if (mode_135hz && target_dsi->panel &&
-		    target_dsi->panel->connector && drm) {
+		if (drm && target_dsi->panel && target_dsi->panel->connector) {
 			mutex_lock(&drm->mode_config.mutex);
-			list_del_init(&mode_135hz->head);
+			remove_135_profile_modes(target_dsi->panel->connector, drm);
 			mutex_unlock(&drm->mode_config.mutex);
-			if (mode_destroy)
-				mode_destroy(drm, mode_135hz);
-			mode_135hz = NULL;
 			refresh_crtc_mode_cache(target_dsi);
 			if (hotplug_event)
 				hotplug_event(drm);
 		}
+		if (mode_135hz && mode_destroy && drm)
+			mode_destroy(drm, mode_135hz);
 	}
-	installed = false;
+	mode_135hz = NULL;
+	target_mode_index = -1;
+	mode_probe_logged = false;
 	target_ext = NULL;
 	target_dsi = NULL;
 	original_funcs = NULL;
+	original_panel_funcs = NULL;
 	original_comp_funcs = NULL;
 	original_io_cmd = NULL;
 	mutex_unlock(&chopin135_lock);
-	pr_info(MOD_NAME ": unloaded\n");
+	pr_info(MOD_NAME ": unloaded\\n");
 }
 
 module_init(chopin135_init);
