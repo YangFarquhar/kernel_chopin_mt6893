@@ -1,0 +1,6 @@
+id=chopin144_experimental
+name=Chopin144 Experimental LKM
+version=0.3
+versionCode=3
+author=Chopin144 experimental project
+description=Experimental 144Hz DRM/MTK DSI mode for POCO X3 GT K10A panel
