@@ -12,6 +12,7 @@
 #include <linux/kallsyms.h>
 #include <linux/of.h>
 #include <linux/workqueue.h>
+#include <linux/timer.h>
 #include <linux/mutex.h>
 #include <linux/slab.h>
 #include <linux/vmalloc.h>
@@ -64,7 +65,8 @@ typedef ssize_t (*dcs_write_buffer_fn)(struct mipi_dsi_device *dsi,
 typedef struct mtk_panel_ext *(*find_panel_ext_fn)(struct drm_panel *panel);
 
 static DEFINE_MUTEX(chopin135_lock);
-static struct delayed_work probe_work;
+static struct work_struct probe_work;
+static struct timer_list probe_timer;
 static struct mtk_dsi *target_dsi;
 static struct mtk_panel_ext *target_ext;
 static struct mtk_panel_funcs *original_funcs;
@@ -479,7 +481,7 @@ static void probe_work_fn(struct work_struct *work)
 		probe_attempts++;
 		mutex_unlock(&chopin135_lock);
 		if (probe_attempts < 60)
-			schedule_delayed_work(&probe_work, HZ);
+			mod_timer(&probe_timer, jiffies + HZ);
 		else
 			pr_err(MOD_NAME ": target DSI/panel was not found after 60 attempts\n");
 		return;
@@ -493,11 +495,17 @@ static void probe_work_fn(struct work_struct *work)
 		pr_err(MOD_NAME ": install attempt %u failed: %d\n",
 			probe_attempts, ret);
 		if (probe_attempts < 60)
-			schedule_delayed_work(&probe_work, HZ);
+			mod_timer(&probe_timer, jiffies + HZ);
 		return;
 	}
 
 	mutex_unlock(&chopin135_lock);
+}
+
+
+static void chopin135_timer_fn(unsigned long data)
+{
+	schedule_work(&probe_work);
 }
 
 static int __init chopin135_init(void)
@@ -526,9 +534,10 @@ static int __init chopin135_init(void)
 		return -ENOSYS;
 	}
 
-	INIT_DELAYED_WORK(&probe_work, probe_work_fn);
+	INIT_WORK(&probe_work, probe_work_fn);
+	setup_timer(&probe_timer, chopin135_timer_fn, 0);
 	probe_attempts = 0;
-	schedule_delayed_work(&probe_work, 5 * HZ);
+	mod_timer(&probe_timer, jiffies + 5 * HZ);
 	pr_info(MOD_NAME ": loaded; waiting for K10A panel binding\n");
 	return 0;
 }
@@ -537,7 +546,8 @@ static void __exit chopin135_exit(void)
 {
 	struct drm_device *drm = NULL;
 
-	cancel_delayed_work_sync(&probe_work);
+	del_timer_sync(&probe_timer);
+	cancel_work_sync(&probe_work);
 	mutex_lock(&chopin135_lock);
 
 	if (installed && target_dsi && target_ext) {
