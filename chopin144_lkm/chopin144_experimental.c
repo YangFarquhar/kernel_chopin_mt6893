@@ -47,7 +47,9 @@ static const struct modversion_info chopin135_empty_versions[]
 };
 #endif
 
-typedef void (*dsi_clk_change_fn)(struct mtk_dsi *dsi, int enable);
+typedef int (*crtc_mipi_freq_switch_fn)(struct drm_crtc *crtc,
+						 unsigned int enable,
+						 unsigned int userdata);
 typedef int (*ddp_io_cmd_fn)(struct mtk_ddp_comp *comp, struct cmdq_pkt *handle,
 			     enum mtk_ddp_io_cmd cmd, void *params);
 typedef int (*of_compatible_fn)(const struct device_node *node,
@@ -79,7 +81,7 @@ static struct drm_display_mode *mode_135hz;
 static bool installed;
 static unsigned int probe_attempts;
 
-static dsi_clk_change_fn dsi_clk_change;
+static crtc_mipi_freq_switch_fn crtc_mipi_freq_switch;
 static of_compatible_fn of_compatible;
 static mode_duplicate_fn mode_duplicate;
 static mode_set_name_fn mode_set_name;
@@ -361,15 +363,12 @@ static int chopin135_io_cmd(struct mtk_ddp_comp *comp,
 				       sizeof(restore_params));
 				restore_params.dyn.switch_en = 1;
 				ext->params = &restore_params;
-				if (dsi_clk_change)
-					dsi_clk_change(dsi, 0);
+				if (crtc_mipi_freq_switch && comp->mtk_crtc)
+					crtc_mipi_freq_switch(&comp->mtk_crtc->base, 0, 0);
 				ext->params = saved_params;
-			} else if (dsi_clk_change) {
-				dsi_clk_change(dsi, 1);
+			} else if (crtc_mipi_freq_switch && comp->mtk_crtc) {
+				crtc_mipi_freq_switch(&comp->mtk_crtc->base, 1, 0);
 			}
-
-			if (comp->mtk_crtc)
-				comp->mtk_crtc->mipi_hopping_sta = use_dynamic;
 			pr_info(MOD_NAME ": DSI profile transition dynamic=%u rate=%u hopping=%u\n",
 				use_dynamic,
 				use_dynamic ? ext->params->dyn.data_rate :
@@ -524,13 +523,16 @@ static int __init chopin135_init(void)
 		resolve_symbol("drm_kms_helper_hotplug_event");
 	dcs_write_buffer = (dcs_write_buffer_fn)
 		resolve_symbol("mipi_dsi_dcs_write_buffer");
-	dsi_clk_change = (dsi_clk_change_fn)
-		resolve_symbol("mtk_dsi_clk_change");
+	crtc_mipi_freq_switch = (crtc_mipi_freq_switch_fn)
+		resolve_symbol("mtk_crtc_mipi_freq_switch");
 
 	if (!of_compatible || !mode_duplicate || !mode_set_name ||
-	    !mode_probed_add || !dcs_write_buffer || !dsi_clk_change ||
-	    !hotplug_event) {
-		pr_err(MOD_NAME ": required runtime symbols are missing\n");
+	    !mode_probed_add || !dcs_write_buffer ||
+	    !crtc_mipi_freq_switch || !hotplug_event) {
+		pr_err(MOD_NAME ": missing runtime symbols: of_compatible=%d duplicate=%d set_name=%d probed_add=%d dcs_write=%d crtc_mipi_freq_switch=%d hotplug=%d\\n",
+		       !!of_compatible, !!mode_duplicate, !!mode_set_name,
+		       !!mode_probed_add, !!dcs_write_buffer,
+		       !!crtc_mipi_freq_switch, !!hotplug_event);
 		return -ENOSYS;
 	}
 
@@ -552,7 +554,7 @@ static void __exit chopin135_exit(void)
 
 	if (installed && target_dsi && target_ext) {
 		if (target_ext->params == &params_135hz &&
-		    target_dsi->mipi_hopping_sta && dsi_clk_change) {
+		    target_dsi->mipi_hopping_sta && crtc_mipi_freq_switch) {
 			struct mtk_panel_params restore_params;
 			struct mtk_panel_params *stock_params;
 			struct drm_display_mode *mode120 =
@@ -573,7 +575,10 @@ static void __exit chopin135_exit(void)
 				       sizeof(restore_params));
 				restore_params.dyn.switch_en = 1;
 				target_ext->params = &restore_params;
-				dsi_clk_change(target_dsi, 0);
+				if (target_dsi->ddp_comp.mtk_crtc)
+					crtc_mipi_freq_switch(
+						&target_dsi->ddp_comp.mtk_crtc->base,
+						0, 0);
 				target_ext->params = stock_params;
 			}
 		}
