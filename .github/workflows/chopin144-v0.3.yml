@@ -38,7 +38,7 @@ jobs:
           set -euxo pipefail
           mkdir -p out
           cp chopin144_lkm/target.config out/.config
-          scripts/config --file out/.config --disable LOCALVERSION_AUTO
+          bash scripts/config --file out/.config --disable LOCALVERSION_AUTO
           make O=out ARCH=arm64 CROSS_COMPILE="$CROSS_COMPILE" \
             CC=clang-12 LD=ld.lld-12 AR=llvm-ar-12 NM=llvm-nm-12 \
             OBJCOPY=llvm-objcopy-12 OBJDUMP=llvm-objdump-12 STRIP=llvm-strip-12 \
