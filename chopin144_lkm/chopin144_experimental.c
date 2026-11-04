@@ -391,8 +391,8 @@ static int install_hooks(struct mtk_dsi *dsi)
 	dsi->ext = target_ext;
 	installed = true;
 
-	pr_info(MOD_NAME ": hooks installed on %s; modes=%u; kernel=%s\n",
-		TARGET_COMPAT, target_ext->params ? 1 : 0, init_uts_ns.name.release);
+	pr_info(MOD_NAME ": hooks installed on %s; 144Hz mode is available\n",
+		TARGET_COMPAT);
 	return 0;
 }
 
