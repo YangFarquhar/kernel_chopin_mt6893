@@ -7,7 +7,7 @@ wraps the MTK panel-extension callbacks. Candidate profile:
 
 - 1080x2400 active
 - HFP 72, HSA 10, HBP 8
-- VFP 30, VSA 2, VBP 18
+- VFP 192, VSA 2, VBP 18
 - pixel clock 412565 kHz (1170 x 2612 totals)
 - PLL 570, DSI data rate 1140
 - DCS selector 0x1F
