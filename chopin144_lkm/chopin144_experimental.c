@@ -537,15 +537,29 @@ static void __exit chopin144_exit(void)
 	if (installed && target_dsi && target_ext) {
 		if (target_ext->params == &params_144hz &&
 		    target_dsi->mipi_hopping_sta && dsi_clk_change) {
+			struct mtk_panel_params restore_params;
+			struct mtk_panel_params *stock_params;
 			struct drm_display_mode *mode120 =
 				mode_at_index(target_dsi, 2);
+
 			if (mode120) {
 				target_dsi->vm.hfront_porch =
 					mode120->hsync_start - mode120->hdisplay;
 				target_dsi->vm.vfront_porch =
 					mode120->vsync_start - mode120->vdisplay;
 			}
-			dsi_clk_change(target_dsi, 0);
+
+			if (original_funcs && original_funcs->ext_param_set)
+				original_funcs->ext_param_set(target_dsi->panel, 2);
+			stock_params = target_ext->params;
+			if (stock_params) {
+				memcpy(&restore_params, stock_params,
+				       sizeof(restore_params));
+				restore_params.dyn.switch_en = 1;
+				target_ext->params = &restore_params;
+				dsi_clk_change(target_dsi, 0);
+				target_ext->params = stock_params;
+			}
 		}
 
 		target_ext->funcs = original_funcs;
