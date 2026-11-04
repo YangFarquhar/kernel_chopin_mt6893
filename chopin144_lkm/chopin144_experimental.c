@@ -25,7 +25,6 @@
 
 #define MOD_NAME             "chopin135_experimental"
 #define TARGET_COMPAT        "k10a_42_02_0b_dsc_vdo,lcm"
-#define TARGET_MODE_INDEX    6
 #define MODE_135_FPS         135
 #define MODE_135_HFP         72
 #define MODE_135_VFP         192
@@ -398,7 +397,7 @@ static int chopin135_io_cmd(struct mtk_ddp_comp *comp,
 		crtc->avail_modes_num = count + 1;
 		crtc->max_fps = max(crtc->max_fps, MODE_135_FPS);
 		target_mode_index = count;
-		pr_info(MOD_NAME ": exposed 135Hz as CRTC mode index %d\\n",
+		pr_info(MOD_NAME ": exposed 135Hz as CRTC mode index %d\n",
 			target_mode_index);
 		return ret;
 	}
@@ -602,8 +601,9 @@ static int __init chopin135_init(void)
 		resolve_symbol("mipi_dsi_dcs_write_buffer");
 
 	if (!of_compatible || !mode_duplicate || !mode_set_name ||
-	    !mode_probed_add || !dcs_write_buffer || !hotplug_event) {
-		pr_err(MOD_NAME ": missing runtime symbols: of_compatible=%d duplicate=%d set_name=%d probed_add=%d dcs_write=%d hotplug=%d\\n",
+	    !mode_probed_add || !mode_destroy || !dcs_write_buffer ||
+	    !hotplug_event) {
+		pr_err(MOD_NAME ": missing runtime symbols: of_compatible=%d duplicate=%d set_name=%d probed_add=%d dcs_write=%d hotplug=%d\n",
 		       !!of_compatible, !!mode_duplicate, !!mode_set_name,
 		       !!mode_probed_add, !!dcs_write_buffer, !!hotplug_event);
 		return -ENOSYS;
@@ -706,7 +706,7 @@ static void __exit chopin135_exit(void)
 	original_comp_funcs = NULL;
 	original_io_cmd = NULL;
 	mutex_unlock(&chopin135_lock);
-	pr_info(MOD_NAME ": unloaded\\n");
+	pr_info(MOD_NAME ": unloaded\n");
 }
 
 module_init(chopin135_init);
