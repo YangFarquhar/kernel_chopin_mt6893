@@ -1,0 +1,113 @@
+name: Chopin144 V0.3 experimental LKM
+
+on:
+  push:
+    branches:
+      - chopin144-dev-v0.3
+    paths:
+      - "chopin144_lkm/**"
+      - ".github/workflows/chopin144-v0.3.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+    steps:
+      - name: Checkout kernel source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bc bison build-essential flex libelf-dev libssl-dev \
+            libncurses-dev clang-12 lld-12 llvm-12 gcc-aarch64-linux-gnu \
+            binutils-aarch64-linux-gnu kmod zip
+
+      - name: Prepare kernel headers
+        env:
+          ARCH: arm64
+          CROSS_COMPILE: aarch64-linux-gnu-
+          LOCALVERSION: -gfc959c14c332
+        run: |
+          set -euxo pipefail
+          mkdir -p out
+          cp chopin144_lkm/target.config out/.config
+          scripts/config --file out/.config --disable LOCALVERSION_AUTO
+          make O=out ARCH=arm64 CROSS_COMPILE="$CROSS_COMPILE" \
+            CC=clang-12 LD=ld.lld-12 AR=llvm-ar-12 NM=llvm-nm-12 \
+            OBJCOPY=llvm-objcopy-12 OBJDUMP=llvm-objdump-12 STRIP=llvm-strip-12 \
+            HOSTCC=clang-12 HOSTCXX=clang++-12 LOCALVERSION="$LOCALVERSION" olddefconfig
+          KREL="$(make -s O=out ARCH=arm64 CROSS_COMPILE="$CROSS_COMPILE" \
+            CC=clang-12 LD=ld.lld-12 LOCALVERSION="$LOCALVERSION" kernelrelease)"
+          echo "Build target release: $KREL"
+          test "$KREL" = "4.14.357-Openela-Hua-gfc959c14c332"
+          make O=out ARCH=arm64 CROSS_COMPILE="$CROSS_COMPILE" \
+            CC=clang-12 LD=ld.lld-12 AR=llvm-ar-12 NM=llvm-nm-12 \
+            OBJCOPY=llvm-objcopy-12 OBJDUMP=llvm-objdump-12 STRIP=llvm-strip-12 \
+            HOSTCC=clang-12 HOSTCXX=clang++-12 LOCALVERSION="$LOCALVERSION" \
+            -j2 prepare modules_prepare
+
+      - name: Build external module
+        env:
+          ARCH: arm64
+          CROSS_COMPILE: aarch64-linux-gnu-
+          LOCALVERSION: -gfc959c14c332
+        run: |
+          set -euxo pipefail
+          make O=out ARCH=arm64 CROSS_COMPILE="$CROSS_COMPILE" \
+            CC=clang-12 LD=ld.lld-12 AR=llvm-ar-12 NM=llvm-nm-12 \
+            OBJCOPY=llvm-objcopy-12 OBJDUMP=llvm-objdump-12 STRIP=llvm-strip-12 \
+            HOSTCC=clang-12 HOSTCXX=clang++-12 LOCALVERSION="$LOCALVERSION" \
+            KBUILD_MODPOST_WARN=1 M="$GITHUB_WORKSPACE/chopin144_lkm" modules -j2
+          test -s chopin144_lkm/chopin144_experimental.ko
+
+      - name: Normalize MODVERSIONS section for experimental ABI probe
+        run: |
+          set -euxo pipefail
+          python3 - <<'PY'
+          import pathlib, struct
+          pathlib.Path("/tmp/chopin144-versions").write_bytes(struct.pack("<Q", 0) + bytes(64))
+          PY
+          if llvm-readelf-12 -S chopin144_lkm/chopin144_experimental.ko | grep -q '__versions'; then
+            llvm-objcopy-12 --update-section __versions=/tmp/chopin144-versions chopin144_lkm/chopin144_experimental.ko
+          else
+            llvm-objcopy-12 --add-section __versions=/tmp/chopin144-versions chopin144_lkm/chopin144_experimental.ko
+          fi
+          llvm-readelf-12 -S chopin144_lkm/chopin144_experimental.ko | grep '__versions'
+          modinfo -F vermagic chopin144_lkm/chopin144_experimental.ko
+
+      - name: Assemble KernelSU package
+        run: |
+          set -euxo pipefail
+          mkdir -p package/chopin144_experimental
+          cp chopin144_lkm/chopin144_experimental.ko package/chopin144_experimental/
+          cp chopin144_lkm/module.prop package/chopin144_experimental/
+          cp chopin144_lkm/service.sh package/chopin144_experimental/
+          cp chopin144_lkm/uninstall.sh package/chopin144_experimental/
+          cp chopin144_lkm/README.md package/chopin144_experimental/
+          cd package
+          zip -r ../Chopin144_KernelSU_Experimental_V0.3.zip chopin144_experimental
+          cd ..
+          cp chopin144_lkm/chopin144_experimental.ko Chopin144_Experimental_V0.3.ko
+          {
+            echo "kernelrelease=$(make -s O=out ARCH=arm64 LOCALVERSION=-gfc959c14c332 kernelrelease)"
+            echo "vermagic=$(modinfo -F vermagic chopin144_lkm/chopin144_experimental.ko)"
+            echo "source_commit=$GITHUB_SHA"
+          } > build-info.txt
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: Chopin144-Experimental-V0.3
+          path: |
+            Chopin144_KernelSU_Experimental_V0.3.zip
+            Chopin144_Experimental_V0.3.ko
+            build-info.txt
+          if-no-files-found: error
+          retention-days: 30
