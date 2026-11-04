@@ -47,7 +47,8 @@ static const struct modversion_info chopin144_empty_versions[]
 #endif
 
 typedef void (*dsi_clk_change_fn)(struct mtk_dsi *dsi, int enable);
-typedef int (*ddp_io_cmd_fn)(struct mtk_ddp_comp *comp, struct cmdq_pkt *handle,\n\t\t\t     enum mtk_ddp_io_cmd cmd, void *params);
+typedef int (*ddp_io_cmd_fn)(struct mtk_ddp_comp *comp, struct cmdq_pkt *handle,
+			     enum mtk_ddp_io_cmd cmd, void *params);
 typedef int (*of_compatible_fn)(const struct device_node *node,
 				const char *compatible);
 typedef struct drm_display_mode *(*mode_duplicate_fn)(
@@ -66,7 +67,10 @@ static struct delayed_work probe_work;
 static struct mtk_dsi *target_dsi;
 static struct mtk_panel_ext *target_ext;
 static struct mtk_panel_funcs *original_funcs;
-static struct mtk_panel_funcs hooked_funcs;\nstatic struct mtk_ddp_comp_funcs hooked_comp_funcs;\nstatic const struct mtk_ddp_comp_funcs *original_comp_funcs;\nstatic ddp_io_cmd_fn original_io_cmd;
+static struct mtk_panel_funcs hooked_funcs;
+static struct mtk_ddp_comp_funcs hooked_comp_funcs;
+static const struct mtk_ddp_comp_funcs *original_comp_funcs;
+static ddp_io_cmd_fn original_io_cmd;
 static struct mtk_panel_params params_144hz;
 static struct drm_display_mode *mode_144hz;
 static bool installed;
