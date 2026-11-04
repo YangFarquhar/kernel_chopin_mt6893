@@ -266,10 +266,9 @@ static int chopin144_ext_param_set(struct drm_panel *panel,
 	}
 
 	/*
-	 * When leaving 144Hz, restore the target mode porches while the
-	 * 144Hz dyn profile is still selected, then ask the stock MTK helper
-	 * to restore the default DSI PHY rate. The stock callback selects the
-	 * corresponding 30/48/50/60/90/120Hz parameter block afterward.
+	 * The target profile is changed here. The DSI_TIMING_CHANGE wrapper
+	 * performs the matching PLL/porch transition after DYN_FPS_INDEX has
+	 * calculated the target mode.
 	 */
 	if (target_ext->params == &params_144hz && dsi->mipi_hopping_sta) {
 		target_mode = mode_at_index(dsi, mode);
@@ -282,10 +281,6 @@ static int chopin144_ext_param_set(struct drm_panel *panel,
 	}
 
 	ret = original_funcs->ext_param_set(panel, mode);
-	if (!ret) {
-		target_mode = mode_at_index(dsi, mode);
-		if (target_mode)
-	}
 	return ret;
 }
 
