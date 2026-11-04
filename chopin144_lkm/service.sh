@@ -1,8 +1,8 @@
 #!/system/bin/sh
 MODDIR=${0%/*}
-LOG=/data/adb/chopin144_experimental_v0.3.log
+LOG=/data/adb/chopin135_experimental_v0.3.log
 
-echo "[$(date)] Chopin144 V0.3 service started" >> "$LOG"
+echo "[$(date)] Chopin135 V0.3 service started" >> "$LOG"
 PANEL=/proc/device-tree/dsi@1400e000/panel2@1/compatible
 if [ -r "$PANEL" ]; then
     COMPAT="$(tr -d '\000' < "$PANEL")"
@@ -17,7 +17,7 @@ if [ -r "$PANEL" ]; then
 fi
 
 sleep 8
-/system/bin/insmod "$MODDIR/chopin144_experimental.ko" >> "$LOG" 2>&1
+/system/bin/insmod "$MODDIR/chopin135_experimental.ko" >> "$LOG" 2>&1
 RET=$?
 echo "insmod_exit=$RET" >> "$LOG"
 exit 0
