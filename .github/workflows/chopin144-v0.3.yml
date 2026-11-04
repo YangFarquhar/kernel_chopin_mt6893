@@ -27,19 +27,21 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y bc bison build-essential flex libelf-dev libssl-dev \
             libncurses-dev clang-12 lld-12 llvm-12 gcc-aarch64-linux-gnu \
-            binutils-aarch64-linux-gnu kmod zip
+            binutils-aarch64-linux-gnu gcc-arm-linux-gnueabihf binutils-arm-linux-gnueabihf kmod zip
 
       - name: Prepare kernel headers
         env:
           ARCH: arm64
           CROSS_COMPILE: aarch64-linux-gnu-
+          CROSS_COMPILE_ARM32: arm-linux-gnueabihf-
           LOCALVERSION: -gfc959c14c332
         run: |
           set -euxo pipefail
           mkdir -p out
+          chmod +x scripts/clang-android.sh
           cp chopin144_lkm/target.config out/.config
           bash scripts/config --file out/.config --disable LOCALVERSION_AUTO
-          make O=out ARCH=arm64 CROSS_COMPILE="$CROSS_COMPILE" \
+          make O=out ARCH=arm64 CROSS_COMPILE="$CROSS_COMPILE" CROSS_COMPILE_ARM32="$CROSS_COMPILE_ARM32" \
             CC=clang-12 LD=ld.lld-12 AR=llvm-ar-12 NM=llvm-nm-12 \
             OBJCOPY=llvm-objcopy-12 OBJDUMP=llvm-objdump-12 STRIP=llvm-strip-12 \
             HOSTCC=clang-12 HOSTCXX=clang++-12 LOCALVERSION="$LOCALVERSION" olddefconfig
