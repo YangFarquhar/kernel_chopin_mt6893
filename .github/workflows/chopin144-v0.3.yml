@@ -85,14 +85,14 @@ jobs:
       - name: Assemble KernelSU package
         run: |
           set -euxo pipefail
-          mkdir -p package/chopin144_experimental
-          cp chopin144_lkm/chopin144_experimental.ko package/chopin144_experimental/
-          cp chopin144_lkm/module.prop package/chopin144_experimental/
-          cp chopin144_lkm/service.sh package/chopin144_experimental/
-          cp chopin144_lkm/uninstall.sh package/chopin144_experimental/
-          cp chopin144_lkm/README.md package/chopin144_experimental/
+          mkdir -p package
+          cp chopin144_lkm/chopin144_experimental.ko package/
+          cp chopin144_lkm/module.prop package/
+          cp chopin144_lkm/service.sh package/
+          cp chopin144_lkm/uninstall.sh package/
+          cp chopin144_lkm/README.md package/
           cd package
-          zip -r ../Chopin144_KernelSU_Experimental_V0.3.zip chopin144_experimental
+          zip -r ../Chopin144_KernelSU_Experimental_V0.3.zip .
           cd ..
           cp chopin144_lkm/chopin144_experimental.ko Chopin144_Experimental_V0.3.ko
           {
