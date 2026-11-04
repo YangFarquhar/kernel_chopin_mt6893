@@ -57,7 +57,6 @@ typedef void (*mode_probed_add_fn)(struct drm_connector *connector,
 				   struct drm_display_mode *mode);
 typedef void (*mode_destroy_fn)(struct drm_device *dev,
 				struct drm_display_mode *mode);
-typedef void (*hotplug_event_fn)(struct drm_device *dev);
 typedef ssize_t (*dcs_write_buffer_fn)(struct mipi_dsi_device *dsi,
 				       const void *data, size_t len);
 typedef struct mtk_panel_ext *(*find_panel_ext_fn)(struct drm_panel *panel);
@@ -79,7 +78,6 @@ static mode_duplicate_fn mode_duplicate;
 static mode_set_name_fn mode_set_name;
 static mode_probed_add_fn mode_probed_add;
 static mode_destroy_fn mode_destroy;
-static hotplug_event_fn hotplug_event;
 static dcs_write_buffer_fn dcs_write_buffer;
 
 static const struct drm_display_mode mode_144_template = {
@@ -163,13 +161,6 @@ static unsigned int refresh_to_index(unsigned int fps)
 	}
 }
 
-static void update_panel_current_fps(unsigned int fps)
-{
-	int *current_fps = (int *)resolve_symbol("current_fps");
-
-	if (current_fps)
-		WRITE_ONCE(*current_fps, (int)fps);
-}
 
 static void refresh_crtc_mode_cache(struct mtk_dsi *dsi)
 {
@@ -191,8 +182,6 @@ static void refresh_crtc_mode_cache(struct mtk_dsi *dsi)
 		comp->funcs->io_cmd(comp, NULL, DSI_SET_CRTC_AVAIL_MODES,
 				    comp->mtk_crtc);
 	}
-	if (hotplug_event && dsi->conn.dev)
-		hotplug_event(dsi->conn.dev);
 }
 
 static int add_144hz_mode(struct mtk_dsi *dsi)
@@ -270,7 +259,6 @@ static int chopin144_ext_param_set(struct drm_panel *panel,
 		dsi->vm.hfront_porch = MODE_144_HFP;
 		dsi->vm.vfront_porch = MODE_144_VFP;
 
-		update_panel_current_fps(MODE_144_FPS);
 		pr_info(MOD_NAME ": selected 144Hz profile, pll=%u data_rate=%u HFP=%u VFP=%u selector=0x%02X\n",
 			params_144hz.pll_clk, params_144hz.data_rate,
 			MODE_144_HFP, MODE_144_VFP, MODE_144_SELECTOR);
@@ -297,7 +285,6 @@ static int chopin144_ext_param_set(struct drm_panel *panel,
 	if (!ret) {
 		target_mode = mode_at_index(dsi, mode);
 		if (target_mode)
-			update_panel_current_fps(target_mode->vrefresh);
 	}
 	return ret;
 }
@@ -522,8 +509,6 @@ static int __init chopin144_init(void)
 		resolve_symbol("drm_mode_probed_add");
 	mode_destroy = (mode_destroy_fn)
 		resolve_symbol("drm_mode_destroy");
-	hotplug_event = (hotplug_event_fn)
-		resolve_symbol("drm_kms_helper_hotplug_event");
 	dcs_write_buffer = (dcs_write_buffer_fn)
 		resolve_symbol("mipi_dsi_dcs_write_buffer");
 	dsi_clk_change = (dsi_clk_change_fn)
