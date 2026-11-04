@@ -58,6 +58,7 @@ typedef void (*mode_probed_add_fn)(struct drm_connector *connector,
 				   struct drm_display_mode *mode);
 typedef void (*mode_destroy_fn)(struct drm_device *dev,
 				struct drm_display_mode *mode);
+typedef void (*hotplug_event_fn)(struct drm_device *dev);
 typedef ssize_t (*dcs_write_buffer_fn)(struct mipi_dsi_device *dsi,
 				       const void *data, size_t len);
 typedef struct mtk_panel_ext *(*find_panel_ext_fn)(struct drm_panel *panel);
@@ -82,6 +83,7 @@ static mode_duplicate_fn mode_duplicate;
 static mode_set_name_fn mode_set_name;
 static mode_probed_add_fn mode_probed_add;
 static mode_destroy_fn mode_destroy;
+static hotplug_event_fn hotplug_event;
 static dcs_write_buffer_fn dcs_write_buffer;
 
 static const struct drm_display_mode mode_135_template = {
@@ -219,6 +221,8 @@ static int add_135hz_mode(struct mtk_dsi *dsi)
 	mutex_unlock(&dsi->conn.dev->mode_config.mutex);
 
 	refresh_crtc_mode_cache(dsi);
+	if (hotplug_event)
+		hotplug_event(dsi->conn.dev);
 	pr_info(MOD_NAME ": appended DRM mode %s @%u, clock=%u kHz, totals=%ux%u\n",
 		mode->name, mode->vrefresh, mode->clock,
 		mode->htotal, mode->vtotal);
@@ -386,6 +390,8 @@ static int install_hooks(struct mtk_dsi *dsi)
 
 	if (!is_target_dsi(dsi))
 		return -ENODEV;
+	if (!dsi->ddp_comp.funcs || !dsi->ddp_comp.funcs->io_cmd)
+		return -ENODEV;
 
 	panel = dsi->panel;
 	target_ext = dsi->ext;
@@ -442,8 +448,6 @@ static int install_hooks(struct mtk_dsi *dsi)
 	target_ext->funcs = &hooked_funcs;
 
 	original_comp_funcs = dsi->ddp_comp.funcs;
-	if (!original_comp_funcs || !original_comp_funcs->io_cmd)
-		return -ENODEV;
 	memcpy(&hooked_comp_funcs, original_comp_funcs,
 	       sizeof(hooked_comp_funcs));
 	original_io_cmd = original_comp_funcs->io_cmd;
@@ -508,13 +512,16 @@ static int __init chopin135_init(void)
 		resolve_symbol("drm_mode_probed_add");
 	mode_destroy = (mode_destroy_fn)
 		resolve_symbol("drm_mode_destroy");
+	hotplug_event = (hotplug_event_fn)
+		resolve_symbol("drm_kms_helper_hotplug_event");
 	dcs_write_buffer = (dcs_write_buffer_fn)
 		resolve_symbol("mipi_dsi_dcs_write_buffer");
 	dsi_clk_change = (dsi_clk_change_fn)
 		resolve_symbol("mtk_dsi_clk_change");
 
 	if (!of_compatible || !mode_duplicate || !mode_set_name ||
-	    !mode_probed_add || !dcs_write_buffer || !dsi_clk_change) {
+	    !mode_probed_add || !dcs_write_buffer || !dsi_clk_change ||
+	    !hotplug_event) {
 		pr_err(MOD_NAME ": required runtime symbols are missing\n");
 		return -ENOSYS;
 	}
@@ -575,6 +582,8 @@ static void __exit chopin135_exit(void)
 				mode_destroy(drm, mode_135hz);
 			mode_135hz = NULL;
 			refresh_crtc_mode_cache(target_dsi);
+			if (hotplug_event)
+				hotplug_event(drm);
 		}
 	}
 	installed = false;
