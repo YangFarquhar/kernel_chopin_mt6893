@@ -18,4 +18,4 @@ not vendor-confirmed values. Logs:
 - Kernel log tag: chopin144_experimental
 - Service log: /data/adb/chopin144_experimental_v0.3.log
 
-This is an experimental test build, not a validated production module.
+This is an experimental test build, not a validated production module. Before uninstalling or disabling the module, switch the display back to stock 120Hz first; do not remove the module while the panel is actively using the experimental 144Hz mode.
