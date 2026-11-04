@@ -17,7 +17,7 @@ if [ -r "$PANEL" ]; then
 fi
 
 sleep 8
-/system/bin/insmod "$MODDIR/chopin135_experimental.ko" >> "$LOG" 2>&1
+/system/bin/insmod "$MODDIR/chopin144_experimental.ko" >> "$LOG" 2>&1
 RET=$?
 echo "insmod_exit=$RET" >> "$LOG"
 exit 0
