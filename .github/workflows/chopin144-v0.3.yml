@@ -3,11 +3,11 @@ name: Chopin135 V0.3 experimental LKM
 on:
   push:
     branches:
-      - chopin135-dev-v0.3
+      - chopin144-dev-v0.3
       - codex/chopin135-experimental
     paths:
-      - "chopin135_lkm/**"
-      - ".github/workflows/chopin135-v0.3.yml"
+      - "chopin144_lkm/**"
+      - ".github/workflows/chopin144-v0.3.yml"
   workflow_dispatch:
 
 permissions:
@@ -40,7 +40,7 @@ jobs:
           set -euxo pipefail
           mkdir -p out
           chmod +x scripts/clang-android.sh
-          cp chopin135_lkm/target.config out/.config
+          cp chopin144_lkm/target.config out/.config
           bash scripts/config --file out/.config --disable LOCALVERSION_AUTO
           make O=out ARCH=arm64 CROSS_COMPILE="$CROSS_COMPILE" CROSS_COMPILE_ARM32="$CROSS_COMPILE_ARM32" \
             CC=clang-12 LD=ld.lld-12 AR=llvm-ar-12 NM=llvm-nm-12 \
@@ -68,8 +68,8 @@ jobs:
             CC=clang-12 LD=ld.lld-12 AR=llvm-ar-12 NM=llvm-nm-12 \
             OBJCOPY=llvm-objcopy-12 OBJDUMP=llvm-objdump-12 STRIP=llvm-strip-12 \
             HOSTCC=clang-12 HOSTCXX=clang++-12 LOCALVERSION="$LOCALVERSION" \
-            KBUILD_MODPOST_WARN=1 M="$GITHUB_WORKSPACE/chopin135_lkm" modules -j2
-          test -s chopin135_lkm/chopin135_experimental.ko
+            KBUILD_MODPOST_WARN=1 M="$GITHUB_WORKSPACE/chopin144_lkm" modules -j2
+          test -s chopin144_lkm/chopin144_experimental.ko
 
       - name: Normalize MODVERSIONS section for experimental ABI probe
         run: |
@@ -78,30 +78,30 @@ jobs:
           import pathlib, struct
           pathlib.Path("/tmp/chopin135-versions").write_bytes(struct.pack("<Q", 0) + bytes(56))
           PY
-          if llvm-readelf-12 -S chopin135_lkm/chopin135_experimental.ko | grep -q '__versions'; then
-            llvm-objcopy-12 --update-section __versions=/tmp/chopin135-versions chopin135_lkm/chopin135_experimental.ko
+          if llvm-readelf-12 -S chopin144_lkm/chopin144_experimental.ko | grep -q '__versions'; then
+            llvm-objcopy-12 --update-section __versions=/tmp/chopin135-versions chopin144_lkm/chopin144_experimental.ko
           else
-            llvm-objcopy-12 --add-section __versions=/tmp/chopin135-versions chopin135_lkm/chopin135_experimental.ko
+            llvm-objcopy-12 --add-section __versions=/tmp/chopin135-versions chopin144_lkm/chopin144_experimental.ko
           fi
-          llvm-readelf-12 -S chopin135_lkm/chopin135_experimental.ko | grep '__versions'
-          modinfo -F vermagic chopin135_lkm/chopin135_experimental.ko
+          llvm-readelf-12 -S chopin144_lkm/chopin144_experimental.ko | grep '__versions'
+          modinfo -F vermagic chopin144_lkm/chopin144_experimental.ko
 
       - name: Assemble KernelSU package
         run: |
           set -euxo pipefail
           mkdir -p package
-          cp chopin135_lkm/chopin135_experimental.ko package/
-          cp chopin135_lkm/module.prop package/
-          cp chopin135_lkm/service.sh package/
-          cp chopin135_lkm/uninstall.sh package/
-          cp chopin135_lkm/README.md package/
+          cp chopin144_lkm/chopin144_experimental.ko package/
+          cp chopin144_lkm/module.prop package/
+          cp chopin144_lkm/service.sh package/
+          cp chopin144_lkm/uninstall.sh package/
+          cp chopin144_lkm/README.md package/
           cd package
           zip -r ../Chopin135_KernelSU_Experimental_V0.3.zip .
           cd ..
-          cp chopin135_lkm/chopin135_experimental.ko Chopin135_Experimental_V0.3.ko
+          cp chopin144_lkm/chopin144_experimental.ko Chopin135_Experimental_V0.3.ko
           {
             echo "kernelrelease=$(make -s O=out ARCH=arm64 LOCALVERSION=-gfc959c14c332 kernelrelease)"
-            echo "vermagic=$(modinfo -F vermagic chopin135_lkm/chopin135_experimental.ko)"
+            echo "vermagic=$(modinfo -F vermagic chopin144_lkm/chopin144_experimental.ko)"
             echo "source_commit=$GITHUB_SHA"
           } > build-info.txt
 
