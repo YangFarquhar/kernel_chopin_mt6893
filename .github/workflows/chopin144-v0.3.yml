@@ -1,4 +1,4 @@
-name: Chopin135 V0.3 experimental LKM
+name: Chopin135 V0.3 experimental LKM # compiler compatibility probe
 
 on:
   push:
