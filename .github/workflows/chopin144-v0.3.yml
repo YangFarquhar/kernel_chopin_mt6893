@@ -50,7 +50,6 @@ jobs:
             CC=clang-12 LD=ld.lld-12 LOCALVERSION="$LOCALVERSION" kernelrelease)"
           echo "Build target release: $KREL"
           test "$KREL" = "4.14.357-Openela-Hua-gfc959c14c332"
-          echo "KREL=$KREL" >> "$GITHUB_ENV"
           make O=out ARCH=arm64 CROSS_COMPILE="$CROSS_COMPILE" \
             CC=clang-12 LD=ld.lld-12 AR=llvm-ar-12 NM=llvm-nm-12 \
             OBJCOPY=llvm-objcopy-12 OBJDUMP=llvm-objdump-12 STRIP=llvm-strip-12 \
@@ -80,9 +79,9 @@ jobs:
           pathlib.Path("/tmp/chopin135-versions").write_bytes(struct.pack("<Q", 0) + bytes(56))
           PY
           if llvm-readelf-12 -S chopin144_lkm/chopin144_experimental.ko | grep -q '__versions'; then
-            llvm-objcopy-12 --update-section=__versions=/tmp/chopin135-versions chopin144_lkm/chopin144_experimental.ko
+            aarch64-linux-gnu-objcopy --update-section __versions=/tmp/chopin135-versions chopin144_lkm/chopin144_experimental.ko
           else
-            llvm-objcopy-12 --add-section=__versions=/tmp/chopin135-versions chopin144_lkm/chopin144_experimental.ko
+            aarch64-linux-gnu-objcopy --add-section __versions=/tmp/chopin135-versions chopin144_lkm/chopin144_experimental.ko
           fi
           llvm-readelf-12 -S chopin144_lkm/chopin144_experimental.ko | grep '__versions'
           modinfo -F vermagic chopin144_lkm/chopin144_experimental.ko
@@ -101,7 +100,7 @@ jobs:
           cd ..
           cp chopin144_lkm/chopin144_experimental.ko Chopin135_Experimental_V0.3.ko
           {
-            echo "kernelrelease=$KREL"
+            echo "kernelrelease=$(make -s O=out ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CC=clang-12 LD=ld.lld-12 LOCALVERSION=-gfc959c14c332 kernelrelease)"
             echo "vermagic=$(modinfo -F vermagic chopin144_lkm/chopin144_experimental.ko)"
             echo "source_commit=$GITHUB_SHA"
           } > build-info.txt
