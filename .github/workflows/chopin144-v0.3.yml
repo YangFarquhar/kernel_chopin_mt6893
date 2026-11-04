@@ -70,6 +70,7 @@ jobs:
             HOSTCC=clang-12 HOSTCXX=clang++-12 LOCALVERSION="$LOCALVERSION" \
             KBUILD_MODPOST_WARN=1 M="$GITHUB_WORKSPACE/chopin144_lkm" modules -j2
           test -s chopin144_lkm/chopin144_experimental.ko
+          llvm-readelf-12 -r chopin144_lkm/chopin144_experimental.ko | grep -E '311|312|GOT|stack_chk' || true
           python3 - chopin144_lkm/chopin144_experimental.ko <<'PY'
           import pathlib, struct, sys
           data = pathlib.Path(sys.argv[1]).read_bytes()
