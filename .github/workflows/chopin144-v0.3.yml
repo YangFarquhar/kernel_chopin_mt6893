@@ -79,9 +79,9 @@ jobs:
           pathlib.Path("/tmp/chopin135-versions").write_bytes(struct.pack("<Q", 0) + bytes(56))
           PY
           if llvm-readelf-12 -S chopin144_lkm/chopin144_experimental.ko | grep -q '__versions'; then
-            llvm-objcopy-12 --update-section __versions=/tmp/chopin135-versions chopin144_lkm/chopin144_experimental.ko
+            aarch64-linux-gnu-objcopy --update-section __versions=/tmp/chopin135-versions chopin144_lkm/chopin144_experimental.ko
           else
-            llvm-objcopy-12 --add-section __versions=/tmp/chopin135-versions chopin144_lkm/chopin144_experimental.ko
+            aarch64-linux-gnu-objcopy --add-section __versions=/tmp/chopin135-versions chopin144_lkm/chopin144_experimental.ko
           fi
           llvm-readelf-12 -S chopin144_lkm/chopin144_experimental.ko | grep '__versions'
           modinfo -F vermagic chopin144_lkm/chopin144_experimental.ko
