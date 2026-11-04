@@ -48,7 +48,6 @@ static const struct modversion_info chopin135_empty_versions[]
 
 typedef int (*ddp_io_cmd_fn)(struct mtk_ddp_comp *comp, struct cmdq_pkt *handle,
 			     enum mtk_ddp_io_cmd cmd, void *params);
-typedef int (*panel_get_modes_fn)(struct drm_panel *panel);
 typedef int (*of_compatible_fn)(const struct device_node *node,
 				const char *compatible);
 typedef struct drm_display_mode *(*mode_duplicate_fn)(
@@ -70,8 +69,8 @@ static struct mtk_dsi *target_dsi;
 static struct mtk_panel_ext *target_ext;
 static struct mtk_panel_funcs *original_funcs;
 static struct mtk_panel_funcs hooked_funcs;
-static const struct drm_panel_funcs *original_panel_funcs;
-static struct drm_panel_funcs hooked_panel_funcs;
+static const struct drm_connector_helper_funcs *original_connector_helpers;
+static struct drm_connector_helper_funcs hooked_connector_helpers;
 static struct mtk_ddp_comp_funcs hooked_comp_funcs;
 static const struct mtk_ddp_comp_funcs *original_comp_funcs;
 static ddp_io_cmd_fn original_io_cmd;
@@ -201,16 +200,15 @@ static bool is_135_profile(const struct drm_display_mode *mode)
 		mode->vtotal == (2400 + MODE_135_VFP + 2 + 18);
 }
 
-static int chopin135_panel_get_modes(struct drm_panel *panel)
+static int chopin135_connector_get_modes(struct drm_connector *connector)
 {
-	struct drm_connector *connector = panel->connector;
 	struct drm_display_mode *mode;
 	int ret;
 
-	if (!original_panel_funcs || !original_panel_funcs->get_modes)
+	if (!original_connector_helpers || !original_connector_helpers->get_modes)
 		return -ENOSYS;
 
-	ret = original_panel_funcs->get_modes(panel);
+	ret = original_connector_helpers->get_modes(connector);
 	if (ret < 0)
 		return ret;
 
@@ -225,7 +223,7 @@ static int chopin135_panel_get_modes(struct drm_panel *panel)
 			return ret + 1;
 	}
 
-	mode = mode_duplicate(panel->drm, &mode_135_template);
+	mode = mode_duplicate(connector->dev, &mode_135_template);
 	if (!mode)
 		return ret;
 	mode_set_name(mode);
@@ -241,22 +239,23 @@ static int chopin135_panel_get_modes(struct drm_panel *panel)
 static int add_135hz_mode(struct mtk_dsi *dsi)
 {
 	if (!dsi || !dsi->panel || !dsi->panel->connector ||
-	    !dsi->panel->drm || !dsi->panel->funcs ||
-	    !dsi->panel->funcs->get_modes || !mode_duplicate ||
+	    !dsi->conn.dev || !dsi->conn.helper_private || !mode_duplicate ||
 	    !mode_probed_add || !mode_set_name)
 		return -EINVAL;
 
-	original_panel_funcs = dsi->panel->funcs;
-	mode_135hz = mode_duplicate(dsi->panel->drm, &mode_135_template);
+	original_connector_helpers = dsi->conn.helper_private;
+	if (!original_connector_helpers->get_modes)
+		return -EINVAL;
+	mode_135hz = mode_duplicate(dsi->conn.dev, &mode_135_template);
 	if (!mode_135hz)
 		return -ENOMEM;
 	mode_set_name(mode_135hz);
 	mode_135hz->type = DRM_MODE_TYPE_DRIVER;
 
-	memcpy(&hooked_panel_funcs, original_panel_funcs,
-	       sizeof(hooked_panel_funcs));
-	hooked_panel_funcs.get_modes = chopin135_panel_get_modes;
-	dsi->panel->funcs = &hooked_panel_funcs;
+	memcpy(&hooked_connector_helpers, original_connector_helpers,
+	       sizeof(hooked_connector_helpers));
+	hooked_connector_helpers.get_modes = chopin135_connector_get_modes;
+	dsi->conn.helper_private = &hooked_connector_helpers;
 	return 0;
 }
 
@@ -677,8 +676,9 @@ static void __exit chopin135_exit(void)
 		}
 
 		drm = target_dsi->conn.dev;
-		if (target_dsi->panel && original_panel_funcs)
-			target_dsi->panel->funcs = original_panel_funcs;
+		if (original_connector_helpers)
+			target_dsi->conn.helper_private =
+				(void *)original_connector_helpers;
 		target_ext->funcs = original_funcs;
 		if (original_comp_funcs)
 			target_dsi->ddp_comp.funcs = original_comp_funcs;
@@ -701,7 +701,7 @@ static void __exit chopin135_exit(void)
 	target_ext = NULL;
 	target_dsi = NULL;
 	original_funcs = NULL;
-	original_panel_funcs = NULL;
+ 	original_connector_helpers = NULL;
 	original_comp_funcs = NULL;
 	original_io_cmd = NULL;
 	mutex_unlock(&chopin135_lock);
