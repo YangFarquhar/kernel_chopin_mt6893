@@ -100,7 +100,7 @@ jobs:
           cd ..
           cp chopin144_lkm/chopin144_experimental.ko Chopin135_Experimental_V0.3.ko
           {
-            echo "kernelrelease=$(make -s O=out ARCH=arm64 LOCALVERSION=-gfc959c14c332 kernelrelease)"
+            echo "kernelrelease=$(make -s O=out ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CC=clang-12 LD=ld.lld-12 LOCALVERSION=-gfc959c14c332 kernelrelease)"
             echo "vermagic=$(modinfo -F vermagic chopin144_lkm/chopin144_experimental.ko)"
             echo "source_commit=$GITHUB_SHA"
           } > build-info.txt
